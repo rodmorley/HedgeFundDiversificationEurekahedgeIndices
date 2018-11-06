@@ -1,0 +1,124 @@
+---
+title: "Hedge Fund Diversification with PCA"
+author: "R. Morley"
+date: "6 November 2018"
+output: 
+  html_document:
+    self_contained: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(magrittr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(xts)
+library(ggcorrplot)
+library(psych)
+library(d3heatmap)
+library(scales)
+```
+
+### Hedge Fund diversification - Eurekahedge fund of funds indices.  
+
+What are the top-level diversification clues that can be gleaned from the hedge fund of funds indices complied by the data provider Eurekahedge (www.eurekahedge.com).
+
+Download the Eurekahedge indices from the website:  
+```{r}
+# download the Eurekahedge indices
+eurekahedge_url <- "http://www.eurekahedge.com/df/Eurekahedge_indices.zip"
+download.file(eurekahedge_url, destfile = "EurekaHedge_Indices.zip", mode = 'wb')
+unzip("EurekaHedge_Indices.zip")
+eh       <- read.csv("EurekaHedge_Indices.csv", header = TRUE, stringsAsFactors = F)
+eh$Date  <- as.Date(eh$Date, format = "%d-%b-%Y")
+```
+
+
+### Extract the 'fund of funds' indices.
+
+Use __str_detect__ (stingr) combined with __filter__ (dplyr) to extract all indices with 'Fund of Funds Index' in the name.
+
+Convert from long form to wide form using __spread__ (tidyr).
+
+```{r}
+# extract the 'fund of funds' indices
+
+eh_FoF                       <- eh %>% filter(str_detect(Index.Name, pattern = "Fund of Funds Index"))  %>% 
+                                group_by(EHIID, Index.Name) %>% 
+                                select(Index.Name, EHIID) %>% 
+                                summarise(Total = n()) %>% 
+                                as.data.frame()
+
+eh_FoF_EHIIDs                <- eh_FoF$EHIID %>% as.numeric()
+
+eh_dataset_FoF_longform      <- eh %>% filter(EHIID %in% eh_FoF_EHIIDs) %>% select(Index.Name, Date, NAV)
+eh_dataset_FoF_wide          <- spread(eh_dataset_FoF_longform, key = Index.Name, value = NAV)
+
+ehColsFoF                    <- dim(eh_dataset_FoF_wide)[2]
+
+# convert Date to date format
+eh_dataset_FoF_wide$Date     <- as.Date(eh_dataset_FoF_wide$Date, format = "%Y-%m-%d")
+
+# convert all FoF indicies to xts format
+eh_dataset_FoF.xts           <- xts(eh_dataset_FoF_wide[,2:ehColsFoF]/100, order.by = eh_dataset_FoF_wide[,1])[-1]
+
+# reduce the length of the names  by removing 'Eurekahedge' and 'Fund of Funds Index'
+colnames(eh_dataset_FoF.xts) <- gsub(pattern = "Eurekahedge ", "", colnames(eh_dataset_FoF.xts))
+colnames(eh_dataset_FoF.xts) <- gsub(pattern = " Fund of Funds Index", "", colnames(eh_dataset_FoF.xts))
+```
+
+
+###  Graphing the Correlations between the (fund of fund) indices.
+
+The correlations show an aweful lot of red which indicates a high general correlation between strategies.
+
+```{r}
+ggcorrplot(cor(na.omit(eh_dataset_FoF.xts)), tl.cex = 8)
+```
+
+### Diversification using principal components analysis.
+
+We take the fund of funds indices and group them together into separate investment __'bets'__ using Principal Components Analysis (principal from pysch).  This is the approach taken by the authors of the following texts:
+
+  + Multi-Dimensional Diversification: Improving Portfolio Selection Using Principal Component Analysis by Dr Rufus G Rankin.
+  
+  + A Practitioner's Guide to Asset Allocation (Wiley Finance) by William Kinlaw, Mark P. Kritzman, David Turkington.
+
+
+```{r}
+pcaFoF = principal(cor(na.omit(eh_dataset_FoF.xts)), nfactors = 10, rotate = 'varimax')
+
+pcaFoFvarPC1 <- pcaFoF$Vaccounted[2,1];pcaFoFvarPC2 <- pcaFoF$Vaccounted[2,2];pcaFoFvarPC3 <- pcaFoF$Vaccounted[2,3];pcaFoFvarPC4 <- pcaFoF$Vaccounted[2,4]
+```
+
+How many independent investment __'bets'__ explain at least 75% of the variation between the indices (the larger the better)
+
+```{r}
+pcaFoF$Vaccounted["Cumulative Var",] > 0.75
+grep(TRUE, pcaFoF$Vaccounted["Cumulative Var",] > 0.75) %>% min()
+```
+
+If the principal components are *rotated* individual fund of funds indices are more clearly allocated to separately identifiable components or __investment 'bets'__ as shown by *dark blue* groupings.  
+
+We see that the broadest, generic indices such as '(Global/North American) Relative Value' or 'Global Arbitrage' or 'Event Driven' all load on the same / first (rotated) principal component __bet__ (RC1) which explains c. `r percent(pcaFoFvarPC1)` of total variation between the indices.
+
+The second __bet__ or RC4 is everything 'Emerging Market' and 'Asia Pacific' and explains an additional `r percent(pcaFoFvarPC2)` of variance.
+
+The third orthagonal __bet__ is everthing 'Japanese' explaining `r percent(pcaFoFvarPC3)` of variance.
+
+And the fourth independent __bet__ is the 'Macro' and 'CTA' strategies explaining a further `r percent(pcaFoFvarPC4)` of variance.
+
+```{r}
+pcaFoF$Structure[1:length(pcaFoF$values), 1:pcaFoF$factors] %>%
+  d3heatmap(dendrogram = "row", colors = "Blues")
+```
+
+--
+
+
+###  Summary
+
+> In summary; from a top down view of the fund of funds indices the most effective way to __diversify__ is to 1) to diversify *regionally* such as Emerging Markets and Japan and 2) to incorporate Macro and CTAs into the mix.
+
+

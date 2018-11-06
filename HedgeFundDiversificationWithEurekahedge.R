@@ -42,9 +42,18 @@ eh_dataset_FoF.xts        <- xts(eh_dataset_FoF_wide[,2:ehColsFoF]/100, order.by
 
 colnames(eh_dataset_FoF.xts) <- gsub(pattern = "Eurekahedge ", "", colnames(eh_dataset_FoF.xts))
 
-#ggcorrplot(cor(eh_dataset_FoF.xts))
+colnames(eh_dataset_FoF.xts) <- gsub(pattern = "Eurekahedge |Funds of Funds Index", "", colnames(eh_dataset_FoF.xts))
+names(eh_dataset_FoF.xts)
 
-pcaFoF = principal(cor(eh_dataset_FoF.xts), nfactors = 10, rotate = 'varimax')
+ggcorrplot(cor(eh_dataset_FoF.xts))
+ggcorrplot(cor(na.omit(eh_dataset_FoF.xts)))
+
+apply(eh_dataset_FoF.xts, 2, function(x) sum(is.na(x)))
+
+dim(eh_dataset_FoF.xts)
+dim(na.omit(eh_dataset_FoF.xts))
+
+pcaFoF = principal(cor(na.omit(eh_dataset_FoF.xts)), nfactors = 10, rotate = 'varimax')
 pcaFoF
 
 pcaFoF$Vaccounted["Cumulative Var",] > 0.75
@@ -134,4 +143,5 @@ r2 <- eh_dataset_nonFoF.xts[, random_col_sampling[231,]] %>% cor() %>% principal
 r2
 r2$Structure[1:length(r2$values), 1:r2$factors] %>%
   d3heatmap(dendrogram = "row", colors = "Blues")
+
 
